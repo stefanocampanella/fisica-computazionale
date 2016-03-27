@@ -5,8 +5,6 @@ using PyCall
 
 @pyimport matplotlib.cm as cm
 
-# const n = 50 #>1
-# const m = 50 #>1
 const n = parse(Int64,ARGS[1])
 const m = parse(Int64,ARGS[2])
 const moves = [(-1,0), (0, 1), (1, 0), (0, -1)]
@@ -82,7 +80,7 @@ type Type2DLA <: DLA
   end
 end
 
-function moveParticle(p::Particle)
+function moveParticle!(p::Particle)
    i,j = rand(moves)
    p.site = p.site[1]+i, p.site[2]+j
 end
@@ -152,7 +150,7 @@ function evolve(dla::DLA,s::Source)
   p = Particle(s)
   # Evolve the particle state until it goes on a sticky site or leave the grid.
   while getSite(dla,p) != 2
-    moveParticle(p)
+    moveParticle!(p)
     # If the particle is inside the grid then it's also on a sticky site
     if ~inbound(p)
       p = Particle(s)
@@ -168,15 +166,19 @@ function evolve(dla::DLA,s::Source)
   dla.stop = any(x -> getSite(dla,x) == 2, s.sitelist)
 end
 
-let src = Type2Source(), dla = Type2DLA()
-  while ~dla.stop
-    evolve(dla,src)
-  end
-
+function draw(dla::DLA,filename::AbstractString)
   rainbow = cm.get_cmap("rainbow")
   rainbow[:set_under]("w")
 
   axis("off")
   imshow(dla.agegrid,interpolation="none",vmin=0.5,cmap=rainbow)
-  savefig(ARGS[3])
+  savefig(filename)
+end
+
+
+let src = Type2Source(), dla = Type2DLA()
+  while ~dla.stop
+    evolve(dla,src)
+  end
+  draw(dla,ARGS[3])
 end
