@@ -2,112 +2,103 @@
 
 module DLAProcess
 
-using PyPlot
-using PyCall
-
-export Type1DLA, Type1Source, Type2DLA, Type2Source, evolve, draw
-
-@pyimport matplotlib.cm as cm
+export DLA, Type1DLA, Type1Source, Source, Type2DLA, Type2Source, evolve
 
 const moves = [(-1,0), (0, 1), (1, 0), (0, -1)]
 
 abstract Source
 
 type Type1Source <: Source
-	grid :: Array{Int64,2}
-	sitelist :: Array{Tuple{Int64,Int64},1}
+	grid :: Array{Int,2}
+	sitelist :: Array{Tuple{Int,Int},1}
 
 	function Type1Source(n,m)
-		grid = zeros(Int64,n,2m+1)
+		grid = zeros(Int,2n+1,2m+1)
 		grid[n+1,m+1] = 1
-		sitelist = findSite(grid)
-
+		sitelist = [(n+1,m+1)]
 		new(grid,sitelist)
 	end
 end
 
 type Type2Source <: Source
-	grid :: Array{Int64,2}
-	sitelist :: Array{Tuple{Int64,Int64},1}
+	grid :: Array{Int,2}
+	sitelist :: Array{Tuple{Int,Int},1}
 
 	function Type2Source(n,m)
-		grid = zeros(Int64,2n+1,2m+1)
-		grid[n-2,m-2:m+4] = grid[n+4,m-2:m+4] = 1
-		grid[n-1:n+3,m-2] = grid[n-1:n+3,m+4] = 1
-		sitelist = findSite(grid)
+		const seed = [1 1 1 1 1; 1 0 0 0 1; 1 0 0 0 1; 1 0 0 0 1; 1 1 1 1 1]
+		grid = zeros(Int,2n+1,2m+1)
+		grid[n-2:n+2,m-2:m+2] = seed
+		sitelist = fenceTuples(n-2,n+2,m-2,m+2)
 		new(grid,sitelist)
-	end
-end
-
-type Particle
-	site :: Tuple{Int64,Int64}
-
-	function Particle(s::Source)
-		site = rand(s.sitelist)
-		new(site)
 	end
 end
 
 abstract DLA
 
 type Type1DLA <: DLA
-	grid :: Array{Int64,2}
-	agegrid :: Array{Int64,2}
-	counter :: Int64
+	grid :: Array{Int,2}
+	agegrid :: Array{Int,2}
+	counter :: Int
 	stop :: Bool
 
 	function Type1DLA(n,m)
-		grid = zeros(Int64,2n+1,2m+1)
+		grid = zeros(Int,2n+1,2m+1)
 		grid[1,:] = grid[:,1] = grid[end,:] = grid[:,end] = 2
-		agegrid = zeros(Int64,2n+1,2m+1)
+		agegrid = zeros(Int,2n+1,2m+1)
 		counter = 1
 		new(grid,agegrid,counter,false)
 	end
 end
 
 type Type2DLA <: DLA
-	grid :: Array{Int64,2}
-	agegrid :: Array{Int64,2}
-	counter :: Int64
+	grid :: Array{Int,2}
+	agegrid :: Array{Int,2}
+	counter :: Int
 	stop :: Bool
 
 	function Type2DLA(n,m)
 		const seed = [2 2 2; 2 1 2; 2 2 2]
-		grid = zeros(Int64,2n+1,2m+1)
+		grid = zeros(Int,2n+1,2m+1)
 		grid[n:n+2,m:m+2] = seed
-		agegrid = zeros(Int64,2n+1,2m+1)
+		agegrid = zeros(Int,2n+1,2m+1)
 		agegrid[n+1,m+1] = 1
 		counter = 2
 		new(grid,agegrid,counter,false)
 	end
 end
 
-function moveParticle!(p::Particle)
-	i,j = rand(moves)
-	p.site = p.site[1]+i, p.site[2]+j
+function fenceTuples(i::Int,n1,n2,m1,m2)
+	Δm = m2-m1+1
+	Δn = n2-n1+1
+	if i <= Δm
+		return (n1,m1+i-1)
+	elseif i <= Δm+Δn
+		return (n1+i-Δm-1,m2)
+	elseif i <= 2Δm+Δn
+		return (n2,m2-(i-Δm-Δn-1))
+	else
+		return (n2-(i-2Δm-Δn-1),m1)
+	end
 end
 
-
-function findSite(grid::Array{Int64,2})
-	indices = find(x -> x == 1, grid)
-	return map(x -> ind2sub(grid,x),indices)
+function fenceTuples(n1,n2,m1,m2)
+ft = Array{Tuple{Int,Int}}(2*(n2-n1+m2-m1))
+	for i = 1:2*(n2-n1+m2-m1)
+		ft[i] = fenceTuples(i,n1,n2,m1,m2)
+	end
+	return ft
 end
 
-function getSite(dla::DLA,x::Tuple{Int64,Int64})
-	i,j = x
-	return dla.grid[i,j]
-end
-
-function getSite(dla::DLA,p::Particle)
-	i,j = p.site
-	return dla.grid[i,j]
-end
-
-function updateDLA!(dla::DLA,p::Particle)
-	i,j = p.site
+function updateDLA!(dla::DLA,i,j)
 	dla.grid[i,j] = 1
 	dla.agegrid[i,j] = dla.counter
 	dla.counter += 1
+
+	for n in [i-1,i,i+1], k in [j-1,j,j+1]
+		if (n,k) != (i,j) && inbound(dla,n,k) && dla.grid[n,k] == 0
+			dla.grid[n,k] = 2
+		end
+	end
 end
 
 function inbound(dla::DLA,i,j)
@@ -115,59 +106,60 @@ function inbound(dla::DLA,i,j)
 	return 0 < i <= n && 0 < j <= m
 end
 
-function inbound(dla::DLA,p::Particle)
-	i,j = p.site
-	return inbound(dla,i,j)
-end
-
-function updateStickyNeighbors!(dla::DLA,p::Particle)
-	x,y = p.site
-	for i in [x-1,x,x+1], j in [y-1,y,y+1]
-		#    if (i != x || j != y) && inbound(i,j) && dla.grid[i,j] == 0
-		if (i,j) != (x,y) && inbound(dla,i,j) && dla.grid[i,j] == 0
-			dla.grid[i,j] = 2
-		end
-	end
-end
-
 function updateSource!(s::Type1Source,dla::Type1DLA)
 end
 
 function updateSource!(s::Type2Source,dla::Type2DLA)
 	n, m = size(dla.grid)
-	indices = find(x -> x == 2,dla.grid)
-	ii = mod(indices,n) != 0 ? mod(indices,n) : 1
-	jj = div(indices,m)+1
-	imin, imax = max(1,minimum(ii)-3), min(n,maximum(ii)+3)
-	jmin, jmax = max(1,minimum(jj)-3), min(m,maximum(jj)+3)
+	n1 = n2 = div(n,2)
+	m1 = m2 = div(m,2)
+	for i = 1:n, j = 1:m
+		if dla.grid[i,j] == 2
+			n1 = i < n1 ? i : n1
+			n2 = i > n2 ? i : n2
+			m1 = j < m1 ? j : m1
+			m2 = j > m2 ? j : m2
+		end
+	end
+	n1, n2 = max(1,n1-1), min(n,n2+1)
+	m1, m2 = max(1,m1-1), min(m,m2+1)
 
 	s.grid[:,:] = 0
-	s.grid[imin,jmin:jmax] = s.grid[imax,jmin:jmax] = 1
-	s.grid[imin:imax,jmin] = s.grid[imin:imax,jmax] = 1
-
-	s.sitelist = findSite(s.grid)
+	s.grid[n1,m1:m2] = s.grid[n2,m1:m2] = 1
+	s.grid[n1:n2,m1] = s.grid[n1:n2,m2] = 1
+	s.sitelist = fenceTuples(n1,n2,m1,m2)
 end
 
 function evolve(dla::DLA,s::Source)
 	# Pick a generation site at random and create there a particle.
-	p = Particle(s)
+	i,j = rand(s.sitelist)
 	# Evolve the particle state until it goes on a sticky site or leave the grid.
-	while getSite(dla,p) != 2
-		moveParticle!(p)
+	while dla.grid[i,j] != 2
+		di, dj = rand(moves)
+		i += di
+		j += dj
 		# If the particle is inside the grid then it's also on a sticky site
-		if ~inbound(dla,p)
-			p = Particle(s)
+		if ~inbound(dla,i,j)
+			i, j = rand(s.sitelist)
 		end
 	end
-	# Update the site state, mark as occupied
-	updateDLA!(dla,p)
-	# Update sticky neighbors sites
-	updateStickyNeighbors!(dla,p)
+	# Update the site state (mark them as occupied) and update sticky neighbors.
+	updateDLA!(dla,i,j)
 	# Eventually move the sources
 	updateSource!(s,dla)
 	# Return true if the evolution stops
-	dla.stop = any(x -> getSite(dla,x) == 2, s.sitelist)
+	for (i,j) in s.sitelist
+		dla.stop |= dla.grid[i,j] == 2
+	end
 end
+
+end
+
+using DLAProcess
+using PyPlot
+using PyCall
+
+@pyimport matplotlib.cm as cm
 
 function draw(dla::DLA,filename::AbstractString)
 	rainbow = cm.get_cmap("rainbow")
@@ -177,12 +169,10 @@ function draw(dla::DLA,filename::AbstractString)
 	imshow(dla.agegrid,interpolation="none",vmin=0.5,cmap=rainbow)
 	savefig(filename)
 end
-end
 
-using DLAProcess
+const n = parse(Int,ARGS[1])
+const m = parse(Int,ARGS[2])
 
-const n = parse(Int64,ARGS[1])
-const m = parse(Int64,ARGS[2])
 let src = Type2Source(n,m), dla = Type2DLA(n,m)
 	while ~dla.stop
 		evolve(dla,src)
