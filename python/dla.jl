@@ -2,7 +2,7 @@
 
 module DLAProcess
 
-export DLA, Type1DLA, Type1Source, Source, Type2DLA, Type2Source, evolve
+export DLA, Type1DLA, Type1Source, Source, Type2DLA, Type2Source, evolve!
 
 const moves = [(-1,0), (0, 1), (1, 0), (0, -1)]
 
@@ -28,7 +28,7 @@ type Type2Source <: Source
 		const seed = [1 1 1 1 1; 1 0 0 0 1; 1 0 0 0 1; 1 0 0 0 1; 1 1 1 1 1]
 		grid = zeros(Int,2n+1,2m+1)
 		grid[n-2:n+2,m-2:m+2] = seed
-		sitelist = fenceTuples(n-2,n+2,m-2,m+2)
+		sitelist = fenceTuples(n-1,n+1,m-1,m+1)
 		new(grid,sitelist)
 	end
 end
@@ -130,15 +130,14 @@ function updateSource!(s::Type2Source,dla::Type2DLA)
 	s.sitelist = fenceTuples(n1,n2,m1,m2)
 end
 
-function evolve(dla::DLA,s::Source)
+function evolve!(dla::DLA,s::Source)
 	# Pick a generation site at random and create there a particle.
 	i,j = rand(s.sitelist)
-	# Evolve the particle state until it goes on a sticky site or leave the grid.
+	# Evolve the particle state until it goes on a sticky site.
 	while dla.grid[i,j] != 2
 		di, dj = rand(moves)
 		i += di
 		j += dj
-		# If the particle is inside the grid then it's also on a sticky site
 		if ~inbound(dla,i,j)
 			i, j = rand(s.sitelist)
 		end
@@ -149,7 +148,10 @@ function evolve(dla::DLA,s::Source)
 	updateSource!(s,dla)
 	# Return true if the evolution stops
 	for (i,j) in s.sitelist
-		dla.stop |= dla.grid[i,j] == 2
+		if dla.grid[i,j] == 2
+			dla.stop = true
+			break
+		end
 	end
 end
 
@@ -175,7 +177,7 @@ const m = parse(Int,ARGS[2])
 
 let src = Type2Source(n,m), dla = Type2DLA(n,m)
 	while ~dla.stop
-		evolve(dla,src)
+		evolve!(dla,src)
 	end
 	draw(dla,ARGS[3])
 end
